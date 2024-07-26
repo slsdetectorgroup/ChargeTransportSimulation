@@ -50,7 +50,7 @@ class McSimulator:
         return u
     get_u_hole = get_u_hole111
 
-    def getEz(self, z): ### external E field
+    def getEz(self, z): ### E field due to bias voltage
         Ez = (self.appliedVoltage - self.depletionVoltage) / self.sensorThickness + self.depletionVoltage * 2 / self.sensorThickness * (z) / self.sensorThickness
         if z > self.sensorThickness:
             Ez = (self.appliedVoltage - self.depletionVoltage) / self.sensorThickness + self.depletionVoltage * 2 / self.sensorThickness
@@ -71,7 +71,6 @@ class McSimulator:
 
         totalTime = 0
         while z0 < self.sensorThickness:
-        # while np.min(z0 + zs) < self.sensorThickness:
             rs = np.sqrt(xs**2 + ys**2 + zs**2)
             arrlinds = np.argsort(rs)
             xs = xs[arrlinds]
@@ -184,6 +183,7 @@ class McSimulator:
         return arr_rms, arr_time, xs, arr_Ez, arr_E_rep_z
 
     def simulate(self):
+        ### main function to run the simulation
         self.zList = np.linspace(0, self.sensorThickness, self.zBinning+1)
         self.z0List = (self.zList[:-1] + self.zList[1:])/2
         self.pdfList = (1 - np.exp(-self.zList[1:]/self.attenuationLength) - (1 - np.exp(-self.zList[:-1]/self.attenuationLength)))
