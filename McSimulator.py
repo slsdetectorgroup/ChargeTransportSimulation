@@ -22,8 +22,14 @@ class McSimulator:
         self.attenuationLength = config['attenuationLength']
         self.eIncident = config['eIncident']
         self.repulsionInvolved = config['repulsionInvolved']
-        
-        self.n = 100000 ### number of groups of carriers (one group can have less than 1 carrier)
+        if 'nRepetetion' in config: ### number of repetitions inside the simulationOnce
+            self.nRepetetion = config['nRepetetion']
+        else:
+            self.nRepetetion = 1
+        if 'n' in config:
+            self.n = config['n']
+        else:
+            self.n = 100000 ### number of groups of carriers (one group can have less than 1 carrier)
         self.tInterval = 0.01 # ns
         self.nThread = 16
         self.zBinning = 64
@@ -60,67 +66,81 @@ class McSimulator:
     def simulateOnce(self, z0): ### z0: the intial position in z in um
         ### only return MC simulation results, no change to class variables
 
-        ### initial distribution
-        sigmaInitial = 0.0044* (self.eIncident/1000)**1.75 ### um
-        xs = np.random.normal(0, sigmaInitial, self.n)
-        ys = np.random.normal(0, sigmaInitial, self.n)
-        zs = np.random.normal(0, sigmaInitial, self.n) ### relative to z0
+        ret_xs = None
+        ret_arr_rms = None
+        ret_arr_time = None
+        for idx_reptetion in range(self.nRepetetion):
+            _z0 = z0
+            ### initial distribution
+            ### Rele = 0.040/ρ * E**1.75, ρ=2.329 is density in g/cm**3, E is initial energy, Rele in um; T. E. Everhart et al., Determination of kilovolt electron energy dissipation vs penetration distance in solid materials, Journal of Applied Physics 42 (1971)
+            ### sigma = 1/sqrt(15) * Rele = 0.2572 * Rele, H.-J. Fitting et al., Electron penetration and energy transfer in solid targets, physica status solidi (a) 43 (1977) 185–190.
+            sigmaInitial = 0.00443* (self.eIncident/1000)**1.75 ### um 
+            xs = np.random.normal(0, sigmaInitial, self.n)
+            ys = np.random.normal(0, sigmaInitial, self.n)
+            zs = np.random.normal(0, sigmaInitial, self.n) ### relative to z0
 
-        arr_time = array('d')
-        arr_rms = array('d')
+            arr_time = array('d')
+            arr_rms = array('d')
 
-        totalTime = 0
-        while z0 < self.sensorThickness:
-            rs = np.sqrt(xs**2 + ys**2 + zs**2)
-            arrlinds = np.argsort(rs)
-            xs = xs[arrlinds]
-            ys = ys[arrlinds]
-            zs = zs[arrlinds]
-            rs = rs[arrlinds]
-            ### the CDF of the charge distribution
-            cdf_rs = np.array(range(self.n)) / float(self.n)
+            totalTime = 0
+            while _z0 < self.sensorThickness:
+                rs = np.sqrt(xs**2 + ys**2 + zs**2)
+                arrlinds = np.argsort(rs)
+                xs = xs[arrlinds]
+                ys = ys[arrlinds]
+                zs = zs[arrlinds]
+                rs = rs[arrlinds]
+                ### the CDF of the charge distribution
+                cdf_rs = np.array(range(self.n)) / float(self.n)
 
-            Ez = self.getEz(z0)
-            u = self.get_u_hole(Ez) ### without repulsion the mobility is the same for all carriers
+                Ez = self.getEz(_z0)
+                u = self.get_u_hole(Ez) ### without repulsion the mobility is the same for all carriers
 
-            ### repulsion
-            if self.repulsionInvolved:
-                Qr = cdf_rs * self.eIncident / 3.6
-                E_rep = Qr * e / (4*np.pi*epsilon*rs*rs) * 1e6 ### V/um
-                E_rep_x = E_rep * xs / rs
-                E_rep_y = E_rep * ys / rs
-                E_rep_z = E_rep * zs / rs
-                Ez = self.getEz(z0)
-                # u = self.get_u_hole(np.sqrt((Ez + E_rep_z)**2 + E_rep_x**2 + E_rep_y**2))
-                u = self.get_u_hole(np.sqrt(Ez**2 + E_rep_z**2 + E_rep_x**2 + E_rep_y**2))
+                ### repulsion
+                if self.repulsionInvolved:
+                    Qr = cdf_rs * self.eIncident / 3.6
+                    E_rep = Qr * e / (4*np.pi*epsilon*rs*rs) * 1e6 ### V/um
+                    E_rep_x = E_rep * xs / rs
+                    E_rep_y = E_rep * ys / rs
+                    E_rep_z = E_rep * zs / rs
+                    Ez = self.getEz(_z0)
+                    # u = self.get_u_hole(np.sqrt((Ez + E_rep_z)**2 + E_rep_x**2 + E_rep_y**2))
+                    u = self.get_u_hole(np.sqrt(Ez**2 + E_rep_z**2 + E_rep_x**2 + E_rep_y**2))
 
-                speed = u * E_rep
-                repulsionStep = speed * self.tInterval
-                repulsionStep_x = repulsionStep * xs / rs
-                repulsionStep_y = repulsionStep * ys / rs
-                repulsionStep_z = repulsionStep * zs / rs
+                    speed = u * E_rep
+                    repulsionStep = speed * self.tInterval
+                    repulsionStep_x = repulsionStep * xs / rs
+                    repulsionStep_y = repulsionStep * ys / rs
+                    repulsionStep_z = repulsionStep * zs / rs
 
-            ### random walk
-            diffusion = kBolzman * T / e * u # um^2/ns
-            randomWalkStep_1D = np.sqrt(2 * diffusion * self.tInterval)# um
+                ### random walk
+                diffusion = kBolzman * T / e * u # um^2/ns
+                randomWalkStep_1D = np.sqrt(2 * diffusion * self.tInterval)# um
 
-            ### update position
-            xs += randomWalkStep_1D * (np.random.randint(0, 2, self.n) * 2 - 1)
-            ys += randomWalkStep_1D * (np.random.randint(0, 2, self.n) * 2 - 1)
-            zs += randomWalkStep_1D * (np.random.randint(0, 2, self.n) * 2 - 1)
+                ### update position
+                xs += randomWalkStep_1D * (np.random.randint(0, 2, self.n) * 2 - 1)
+                ys += randomWalkStep_1D * (np.random.randint(0, 2, self.n) * 2 - 1)
+                zs += randomWalkStep_1D * (np.random.randint(0, 2, self.n) * 2 - 1)
 
-            if self.repulsionInvolved:
-                xs += repulsionStep_x
-                ys += repulsionStep_y
-                zs += repulsionStep_z
-            
-            z0 += Ez * np.mean(u) * self.tInterval
-            totalTime += self.tInterval
+                if self.repulsionInvolved:
+                    xs += repulsionStep_x
+                    ys += repulsionStep_y
+                    zs += repulsionStep_z
+                
+                _z0 += Ez * np.mean(u) * self.tInterval
+                totalTime += self.tInterval
 
 
-            arr_time.append(totalTime)
-            arr_rms.append(np.std(xs))
-        return arr_rms, arr_time, xs
+                arr_time.append(totalTime)
+                arr_rms.append(np.std(xs))
+
+            if idx_reptetion == 0:
+                ret_xs = xs
+                ret_arr_rms = arr_rms
+                ret_arr_time = arr_time
+            else:
+                ret_xs = np.concatenate((ret_xs, xs))
+        return ret_arr_rms, ret_arr_time, ret_xs
     
     def simulateOnce2(self, z0): ### z0: the intial position in z in um
         ### another version of the simulation, with repulsion
@@ -196,16 +216,20 @@ class McSimulator:
         rmsList = []
         ggdParList = [] ### (beta, alpha) of the Generalized Gaussian Distribution fitting the distribution
         for result in results:
-            rmsList.append(result[0][-1])
-            h1 = TH1D('h1', 'h1', 200, -50, 50)
-            for x in result[2]:
-                h1.Fill(x)
+            _rms = result[0][-1]
+            rmsList.append(_rms)
+            _binWidth = _rms / 20
+            _nBin = int(100 / _binWidth)
+            h1 = TH1D('h1', 'h1', _nBin, -5 *_rms, 5 * _rms)
+            h1.FillN(len(result[2]), result[2], np.ones(len(result[2])))
+            # for x in result[2]:
+            #     h1.Fill(x)
             def ggd(x, par):
                 beta = par[0]
                 alpha = par[1]
                 coef = beta / (2 * alpha * TMath.Gamma(1 / beta))
                 return coef * TMath.Exp(-TMath.Power((abs(x[0] - 0) / alpha), beta))
-            f1 = TF1('f1', ggd, -50, 50, 2)
+            f1 = TF1('f1', ggd, -5 * _rms, 5 * _rms, 2) ### par[0]: beta, par[1]: alpha
             f1.SetParLimits(0, 2, 5)
             f1.SetParLimits(1, 1.5, 20)
             if len(ggdParList) == 0:
@@ -213,7 +237,7 @@ class McSimulator:
             else:
                 f1.SetParameters(0, ggdParList[-1][0])
                 f1.SetParameters(1, ggdParList[-1][1])
-            h1.Scale(h1.GetNbinsX()/100 /h1.Integral())
+            h1.Scale(h1.GetNbinsX()/(10*_rms) /h1.Integral())
             h1.Fit(f1, 'Q')
             ggdParList.append((f1.GetParameter(0), f1.GetParameter(1)))
             c = TCanvas()
@@ -222,7 +246,11 @@ class McSimulator:
             h1.GetYaxis().SetRangeUser(0, 1.4*h1.GetMaximum())
             h1.Draw()
             f1.SetLineWidth(1)
-            c.SaveAs(f'./No{len(ggdParList)}.pdf')
+            l = TLegend(0.5, 0.65, 0.8, 0.85)
+            l.AddEntry(f1, 'GGD fit', 'lp')
+            l.AddEntry(h1, 'MC simulation', 'lp')
+            l.Draw('same')
+            c.SaveAs(f'figures/No{len(ggdParList)}.png')
             print(f'No{len(ggdParList)}: beta = {f1.GetParameter(0):.2f}, alpha = {f1.GetParameter(1):.2f}, rms = {result[0][-1]:.2f}, time = {result[1][-1]:.2f}')
             print(f'Chi2/NDF = {f1.GetChisquare() / f1.GetNDF():.2f}')
             del h1
