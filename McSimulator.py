@@ -1,12 +1,15 @@
+### Monte Carlo simulater
 from ROOT import *
 from array import array
 import numpy as np
+import torch
 
 ### physics constants
 kBolzman = 1.380649e-23 # J/K
 T = 293 # K
 e = 1.60217662e-19 # electron charge in C
 epsilon = 11.68 * 8.85418782e-12 # F/um
+pi = np.pi
 
 class McSimulator:
     def __init__(self, config):
@@ -33,6 +36,7 @@ class McSimulator:
         self.tInterval = 0.01 # ns
         self.nThread = 16
         self.zBinning = 64
+        self.electronInvolved = True
     
     def get_u_hole111(self, E): ### E in V/um
         ### Jacoboni-Canali Model; allpix-manual-3.0.pdf p76
@@ -41,6 +45,16 @@ class McSimulator:
         E_c = 1.24 * self.T**1.68
         beta_h = 0.46 * self.T**0.17
         u = v_m / E_c / (1 + (E/E_c)**beta_h)**(1/beta_h)
+        u = u * 1e-1 ### convert to um^/(V*ns)
+        return u
+    
+    def get_u_ele111(self, E): ### E in V/um
+        ### Jacoboni-Canali Model; allpix-manual-3.0.pdf p76 + p77
+        E = E * 1e4 ### convert to V/cm
+        v_m = 1.43e9 * self.T**(-0.87)
+        E_c = 1.01 * self.T**1.55
+        beta_e = 0.46 * self.T**0.17
+        u = v_m / E_c / (1 + (E/E_c)**beta_e)**(1/beta_e)
         u = u * 1e-1 ### convert to um^/(V*ns)
         return u
 
@@ -94,7 +108,7 @@ class McSimulator:
                 cdf_rs = np.array(range(self.n)) / float(self.n)
 
                 Ez = self.getEz(_z0)
-                u = self.get_u_hole(Ez) ### without repulsion the mobility is the same for all carriers
+                u = self.get_u_hole111(Ez) ### without repulsion the mobility is the same for all carriers
 
                 ### repulsion
                 if self.repulsionInvolved:
@@ -141,66 +155,230 @@ class McSimulator:
             else:
                 ret_xs = np.concatenate((ret_xs, xs))
         return ret_arr_rms, ret_arr_time, ret_xs
-    
+
     def simulateOnce2(self, z0): ### z0: the intial position in z in um
         ### another version of the simulation, with repulsion
         ### consider the repulsion between each pair of carriers
-        ### very slow; results are similar to simulateOnce
+        ### very slow, but accelerated using GPU; results are similar to simulateOnce
 
-        ### initial distribution
-        sigmaInitial = 0.0044* (self.eIncident/1000)**1.75 ### um
-        xs = np.random.normal(0, sigmaInitial, self.n)
-        ys = np.random.normal(0, sigmaInitial, self.n)
-        zs = np.random.normal(z0, sigmaInitial, self.n)
+        ret_xs = None
+        ret_arr_rms = None
+        ret_arr_time = None
+        _sumArrRmsSquare = None
+        presion = torch.float32 ###
+        for idx_reptetion in range(self.nRepetetion):
 
-        arr_time = array('d')
-        arr_rms = array('d')
-        arr_Ez, arr_E_rep_z = array('d'), array('d')
+            ### using PyTorch to speed up the calculation
+            device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+            print(f"Using device {device}")
 
-        totalTime = 0
-        # while z0 < self.sensorThickness:
-        while np.min(zs) < self.sensorThickness:
-            print(z0, np.average(zs), self.sensorThickness)
+            ### initial distribution
+            sigmaInitial = 0.00443* (self.eIncident/1000)**1.75 ### um
+            if self.electronInvolved:
+                xs = torch.normal(0, sigmaInitial, (self.n*2,), device=device, dtype=presion) ### double the number of carriers for both holes and electrons
+                finalXs = None
+                ys = torch.normal(0, sigmaInitial, (self.n*2,), device=device, dtype=presion) 
+                zs = torch.normal(z0, sigmaInitial, (self.n*2,), device=device, dtype=presion)
+                q = self.eIncident / 3.62 / self.n
+                qs = torch.ones(self.n*2, device=device, dtype=presion)
+                qs[self.n:] = -1 ### sign of charge carriers
+            else:
+                xs = torch.normal(0, sigmaInitial, (self.n,), device=device, dtype=presion)
+                finalXs = None
+                ys = torch.normal(0, sigmaInitial, (self.n,), device=device, dtype=presion)
+                zs = torch.normal(z0, sigmaInitial, (self.n,), device=device, dtype=presion)
+                q = self.eIncident / 3.62 / self.n
+                qs = torch.ones(self.n, device=device, dtype=presion)
+            mask_holesActive = qs > 0
 
-            ### repulsion
-            q = self.eIncident / 3.6 / self.n
-            xs2D = xs.reshape(1, -1).T - np.repeat(xs.reshape(1, -1), len(xs), axis=0)
-            ys2D = ys.reshape(1, -1).T - np.repeat(ys.reshape(1, -1), len(xs), axis=0)
-            zs2D = zs.reshape(1, -1).T - np.repeat(zs.reshape(1, -1), len(xs), axis=0)
-            rs2D = np.sqrt(xs2D**2 + ys2D**2 + zs2D**2)
-            rs2D = rs2D[~np.eye(rs2D.shape[0],dtype=bool)].reshape(rs2D.shape[0],-1)
-            xs2D = xs2D[~np.eye(xs2D.shape[0],dtype=bool)].reshape(xs2D.shape[0],-1)
-            ys2D = ys2D[~np.eye(ys2D.shape[0],dtype=bool)].reshape(ys2D.shape[0],-1)
-            zs2D = zs2D[~np.eye(zs2D.shape[0],dtype=bool)].reshape(zs2D.shape[0],-1)
-            E_rep2D_x = q * e / (4*np.pi*epsilon*rs2D*rs2D) * 1e6 * xs2D / rs2D
-            E_rep2D_y = q * e / (4*np.pi*epsilon*rs2D*rs2D) * 1e6 * ys2D / rs2D
-            E_rep2D_z = q * e / (4*np.pi*epsilon*rs2D*rs2D) * 1e6 * zs2D / rs2D
-            E_rep_x = np.sum(E_rep2D_x, axis=1)
-            E_rep_y = np.sum(E_rep2D_y, axis=1)
-            E_rep_z = np.sum(E_rep2D_z, axis=1)
-            
-            Ez = (self.appliedVoltage - self.depletionVoltage) / self.sensorThickness + self.depletionVoltage * 2 / self.sensorThickness * (zs) / self.sensorThickness
-            
-            u = self.get_u_hole(np.sqrt((Ez + E_rep_z)**2 + E_rep_x**2 + E_rep_y**2))
-            xs[zs < self.sensorThickness] += u[zs < self.sensorThickness] * E_rep_x[zs < self.sensorThickness] * self.tInterval
-            ys[zs < self.sensorThickness] += u[zs < self.sensorThickness] * E_rep_y[zs < self.sensorThickness] * self.tInterval
-            zs[zs < self.sensorThickness] += u[zs < self.sensorThickness] * (E_rep_z+Ez)[zs < self.sensorThickness] * self.tInterval
+            arr_time = array('d')
+            arr_rms = array('d')
+            # arr_Ez, arr_E_rep_z = array('d'), array('d')
 
-            ### random walk
-            diffusion = kBolzman * T / e * u # um^2/ns
-            randomWalkStep_1D = np.sqrt(2 * diffusion * self.tInterval)# um
-            ### update position
-            xs[zs < self.sensorThickness] += randomWalkStep_1D[zs < self.sensorThickness] * (np.random.randint(0, 2, len(xs[zs < self.sensorThickness])) * 2 - 1)
-            ys[zs < self.sensorThickness] += randomWalkStep_1D[zs < self.sensorThickness] * (np.random.randint(0, 2, len(ys[zs < self.sensorThickness])) * 2 - 1)
-            zs[zs < self.sensorThickness] += randomWalkStep_1D[zs < self.sensorThickness] * (np.random.randint(0, 2, len(zs[zs < self.sensorThickness])) * 2 - 1)
-            
-            totalTime += self.tInterval
-            arr_time.append(totalTime)
-            arr_rms.append(np.std(xs))
+            totalTime = 0
+            while len(xs) > 0:
+                if self.repulsionInvolved:
+                    ### repulsion
+                    # transform to 2D matrix 
+                    dx2D = xs.reshape(1, -1).t() - xs.reshape(1, -1).repeat(len(xs), 1)
+                    dy2D = ys.reshape(1, -1).t() - ys.reshape(1, -1).repeat(len(xs), 1)
+                    dz2D = zs.reshape(1, -1).t() - zs.reshape(1, -1).repeat(len(xs), 1)
+                    qq2D = qs.reshape(1, -1).t() * qs.reshape(1, -1)
+                    # calculate the distance between each pair of carriers
+                    r2D = torch.sqrt(dx2D**2 + dy2D**2 + dz2D**2)
+                    # create a boolean mask to exclude diagonal elements
+                    mask = ~torch.eye(r2D.shape[0], dtype=torch.bool, device=device)
+                    # apply the mask and reshape
+                    r2D = r2D[mask].reshape(r2D.shape[0], -1)
+                    dx2D = dx2D[mask].reshape(dx2D.shape[0], -1)
+                    dy2D = dy2D[mask].reshape(dy2D.shape[0], -1)
+                    dz2D = dz2D[mask].reshape(dz2D.shape[0], -1)
+                    qq2D = qq2D[mask].reshape(qq2D.shape[0], -1)
+                    E_rep2D_x = qq2D * e / (4*pi*epsilon*r2D*r2D) * 1e6 * dx2D / r2D
+                    E_rep2D_y = qq2D * e / (4*pi*epsilon*r2D*r2D) * 1e6 * dy2D / r2D
+                    E_rep2D_z = qq2D * e / (4*pi*epsilon*r2D*r2D) * 1e6 * dz2D / r2D
+                    E_rep_x = torch.sum(E_rep2D_x, axis=1) * q ### qq2D is the sign of the charge carriers, so no need to multiply q
+                    E_rep_y = torch.sum(E_rep2D_y, axis=1) * q
+                    E_rep_z = torch.sum(E_rep2D_z, axis=1) * q
+                
+                    Ez = (self.appliedVoltage - self.depletionVoltage) / self.sensorThickness + self.depletionVoltage * 2 / self.sensorThickness * (zs) / self.sensorThickness
+                    
+                    u = self.get_u_hole111(torch.sqrt((Ez + E_rep_z)**2 + E_rep_x**2 + E_rep_y**2))
+                    u_ele = self.get_u_ele111(torch.sqrt((Ez + E_rep_z)**2 + E_rep_x**2 + E_rep_y**2))
+                    u[qs < 0] = u_ele[qs < 0]
 
-            if len(xs) == 0:
-                break
-        return arr_rms, arr_time, xs, arr_Ez, arr_E_rep_z
+                    ### mask for the active hole carriers: zs < self.sensorThickness and qs > 0
+                    mask_holesActive = (zs < self.sensorThickness) & (zs > 0) & (qs > 0)
+                    ### update position due to repulsion
+                    xs[mask_holesActive] += u[mask_holesActive] * E_rep_x[mask_holesActive] * self.tInterval
+                    ys[mask_holesActive] += u[mask_holesActive] * E_rep_y[mask_holesActive] * self.tInterval
+                    zs[mask_holesActive] += u[mask_holesActive] * (E_rep_z+Ez)[mask_holesActive] * self.tInterval
+                    # zs[mask_holes] += u[mask_holes] * (Ez)[mask_holes] * self.tInterval ### without repulsion
+                    ### update position due to random walk
+                    randomWalkStep_1D = torch.sqrt(2 * kBolzman * T / e * u * self.tInterval)
+                    _size = len(xs[mask_holesActive])
+                    xs[mask_holesActive] += randomWalkStep_1D[mask_holesActive] * (torch.randint(0, 2, (_size,), device=device) * 2 - 1)
+                    ys[mask_holesActive] += randomWalkStep_1D[mask_holesActive] * (torch.randint(0, 2, (_size,), device=device) * 2 - 1)
+                    zs[mask_holesActive] += randomWalkStep_1D[mask_holesActive] * (torch.randint(0, 2, (_size,), device=device) * 2 - 1)
+
+                    ### mask for the active electron carriers: zs > 0 and qs < 0
+                    mask_elesActive = (zs > 0) & (qs < 0) & (zs < self.sensorThickness)
+                    mask_elesStopped = (zs <= 0) & (qs < 0)
+                    xs[mask_elesActive] -= u[mask_elesActive] * E_rep_x[mask_elesActive] * self.tInterval
+                    ys[mask_elesActive] -= u[mask_elesActive] * E_rep_y[mask_elesActive] * self.tInterval
+                    zs[mask_elesActive] -= u[mask_elesActive] * (E_rep_z+Ez)[mask_elesActive] * self.tInterval
+                    # zs[mask_eles] -= u[mask_eles] * (Ez)[mask_eles] * self.tInterval ### without repulsion
+                    ### update position due to random walk
+                    _size = len(xs[mask_elesActive])
+                    xs[mask_elesActive] += randomWalkStep_1D[mask_elesActive] * (torch.randint(0, 2, (_size,), device=device) * 2 - 1)
+                    ys[mask_elesActive] += randomWalkStep_1D[mask_elesActive] * (torch.randint(0, 2, (_size,), device=device) * 2 - 1)
+                    zs[mask_elesActive] += randomWalkStep_1D[mask_elesActive] * (torch.randint(0, 2, (_size,), device=device) * 2 - 1)
+
+                    mask_holesCollected = (zs >= self.sensorThickness) & (qs > 0)
+
+                    totalTime += self.tInterval
+                    arr_time.append(totalTime)
+                    # arr_rms.append(torch.std(xs[mask_holesActive]).item()**2)
+                    ### calculate rms of holes both active and collected
+                    mask_holes = (qs > 0)
+                    if finalXs is not None:
+                        sumRmsSquare = torch.sum(xs[mask_holes]**2) + torch.sum(finalXs**2)
+                        rms = torch.sqrt(sumRmsSquare / (len(xs[mask_holes]) + len(finalXs)))
+                    else:
+                        sumRmsSquare = torch.sum(xs[mask_holes]**2)
+                        rms = torch.sqrt(sumRmsSquare / len(xs[mask_holes]))
+                    arr_rms.append(rms.item())
+
+                    # print(z0, torch.mean(zs[mask_holes]).item(), len(xs[mask_holes]))
+                    # print(f'active holes: zbar = {torch.mean(zs[mask_holesActive]).item():.2f}+-{torch.std(zs[mask_holesActive]).item():.2f}, xbar = {torch.mean(xs[mask_holesActive]).item():.2f}+-{torch.std(xs[mask_holesActive]).item():.2f}; stopped holes: zbar = {torch.mean(zs[mask_holesStopped]).item():.2f}+-{torch.std(zs[mask_holesStopped]).item():.2f}, xbar = {torch.mean(xs[mask_holesStopped]).item():.2f}+-{torch.std(xs[mask_holesStopped]).item():.2f}')
+                    # print(f'active eles: zbar = {torch.mean(zs[mask_eles]).item():.2f}+-{torch.std(zs[mask_eles]).item():.2f}, xbar = {torch.mean(xs[mask_eles]).item():.2f}+-{torch.std(xs[mask_eles]).item():.2f}; stopped eles: zbar = {torch.mean(zs[mask_elesStopped]).item():.2f}+-{torch.std(zs[mask_elesStopped]).item():.2f}, xbar = {torch.mean(xs[mask_elesStopped]).item():.2f}+-{torch.std(xs[mask_elesStopped]).item():.2f}')
+                else:
+                    Ez = (self.appliedVoltage - self.depletionVoltage) / self.sensorThickness + self.depletionVoltage * 2 / self.sensorThickness * (zs) / self.sensorThickness
+                    u = self.get_u_hole(Ez)
+                    randomWalkStep_1D = torch.sqrt(2 * kBolzman * T / e * u * self.tInterval)
+                    mask_active = (zs < self.sensorThickness) & (zs > 0)
+                    _size = len(xs[mask_active])
+                    xs[mask_active] += randomWalkStep_1D[mask_active] * (torch.randint(0, 2, (_size,), device=device) * 2 - 1)
+                    ys[mask_active] += randomWalkStep_1D[mask_active] * (torch.randint(0, 2, (_size,), device=device) * 2 - 1)
+                    zs[mask_active] += randomWalkStep_1D[mask_active] * (torch.randint(0, 2, (_size,), device=device) * 2 - 1)
+                    zs[mask_active] += u[mask_active] * Ez[mask_active] * self.tInterval * qs[mask_active] ### qs is the sign of the charge carriers
+                    mask_holesActive = (zs < self.sensorThickness) & (qs > 0)
+                    mask_holesCollected = zs >= self.sensorThickness
+                    mask_elesActive = (zs > 0) & (qs < 0)
+                    mask_elesStopped = zs <= 0
+                    # print(f'active holes: zbar = {torch.mean(zs[mask_holes]).item():.2f}+-{torch.std(zs[mask_holes]).item():.2f}, xbar = {torch.mean(xs[mask_holes]).item():.2f}+-{torch.std(xs[mask_holes]).item():.2f}; stopped holes: zbar = {torch.mean(zs[mask_holesStopped]).item():.2f}+-{torch.std(zs[mask_holesStopped]).item():.2f}, xbar = {torch.mean(xs[mask_holesStopped]).item():.2f}+-{torch.std(xs[mask_holesStopped]).item():.2f}')
+                    # print(f'active eles: zbar = {torch.mean(zs[mask_eles]).item():.2f}+-{torch.std(zs[mask_eles]).item():.2f}, xbar = {torch.mean(xs[mask_eles]).item():.2f}+-{torch.std(xs[mask_eles]).item():.2f}; stopped eles: zbar = {torch.mean(zs[mask_elesStopped]).item():.2f}+-{torch.std(zs[mask_elesStopped]).item():.2f}, xbar = {torch.mean(xs[mask_elesStopped]).item():.2f}+-{torch.std(xs[mask_elesStopped]).item():.2f}')
+
+                ### set charge the stopped carriers almost 0, avoid the contribution to the repulsion
+                # qs[mask_holesCollected] = 1e-32
+                # qs[mask_elesStopped] = -1e-32
+                if finalXs is None:
+                    finalXs = xs[mask_holesCollected]
+                else:
+                    finalXs = torch.cat((finalXs, xs[mask_holesCollected]), 0)
+                if len(xs[mask_holesActive]) == 0:
+                    break
+                
+                ### remove the stopped carriers
+                mask_active = (zs < self.sensorThickness) & (zs > 0)
+                xs = xs[mask_active]
+                ys = ys[mask_active]
+                zs = zs[mask_active]
+                qs = qs[mask_active]
+                
+            if idx_reptetion == 0:
+                ret_xs = finalXs.cpu().numpy()
+                _sumArrRmsSquare = np.array(arr_rms)**2
+                ret_arr_time = arr_time
+            else:
+                ret_xs = np.concatenate((ret_xs, finalXs.cpu().numpy()))
+                _size = min(len(_sumArrRmsSquare), len(arr_rms))
+                _sumArrRmsSquare[:_size] += np.array(arr_rms[:_size])**2
+
+        _sumArrRmsSquare /= self.nRepetetion
+        ret_arr_rms = np.sqrt(_sumArrRmsSquare)
+        ret_arr_rms = array('d', ret_arr_rms)
+        ret_arr_time = ret_arr_time[:len(ret_arr_rms)]
+        return ret_arr_rms, ret_arr_time, ret_xs
+
+    def simulate2(self):
+        ### main function to run the simulation
+        self.zList = np.linspace(0, self.sensorThickness, self.zBinning+1)
+        self.z0List = (self.zList[:-1] + self.zList[1:])/2
+        self.pdfList = (1 - np.exp(-self.zList[1:]/self.attenuationLength) - (1 - np.exp(-self.zList[:-1]/self.attenuationLength)))
+        self.pdfList /= np.sum(self.pdfList) ### renormalized
+
+        # from multiprocessing import Pool
+        # with Pool(self.nThread) as p:
+        #     results = p.map(self.simulateOnce, self.z0List)
+        results = []
+        for z0 in self.z0List:
+            print(f'z0 = {z0:.2f}')
+            results.append(self.simulateOnce2(z0))
+        
+        ggdParList = [] ### (beta, alpha) of the Generalized Gaussian Distribution fitting the distribution
+        rmsList = []
+        for result in results:
+            _rms = np.std(result[2])
+            print(f'rms = {_rms:.2f}')
+            _binWidth = _rms / 20
+            _nBin = int(100 / _binWidth)
+            h1 = TH1D('h1', 'h1', _nBin, -5 *_rms, 5 * _rms)
+            h1.FillN(len(result[2]), array('d', result[2]), np.ones(len(result[2])))
+            # for x in result[2]:
+            #     h1.Fill(x)
+            def ggd(x, par):
+                beta = par[0]
+                alpha = par[1]
+                coef = beta / (2 * alpha * TMath.Gamma(1 / beta))
+                return coef * TMath.Exp(-TMath.Power((abs(x[0] - 0) / alpha), beta))
+            f1 = TF1('f1', ggd, -5 * _rms, 5 * _rms, 2) ### par[0]: beta, par[1]: alpha
+            f1.SetParLimits(0, 2, 5)
+            f1.SetParLimits(1, 1.5, 20)
+            if len(ggdParList) == 0:
+                f1.SetParameters(2, 10)
+            else:
+                f1.SetParameters(0, ggdParList[-1][0])
+                f1.SetParameters(1, ggdParList[-1][1])
+            h1.Scale(h1.GetNbinsX()/(10*_rms) /h1.Integral())
+            h1.Fit(f1, 'Q')
+            ggdParList.append((f1.GetParameter(0), f1.GetParameter(1)))
+            c = TCanvas()
+            c.SetCanvasSize(800, 800)
+            h1.SetTitle(';X [#mum];Normalized Counts')
+            h1.GetYaxis().SetRangeUser(0, 1.4*h1.GetMaximum())
+            h1.Draw()
+            f1.SetLineWidth(1)
+            l = TLegend(0.5, 0.65, 0.8, 0.85)
+            l.AddEntry(f1, 'GGD fit', 'lp')
+            l.AddEntry(h1, 'MC simulation', 'lp')
+            l.Draw('same')
+            c.SaveAs(f'figures/No{len(ggdParList)}.png')
+            print(f'No{len(ggdParList)}: beta = {f1.GetParameter(0):.2f}, alpha = {f1.GetParameter(1):.2f}, rms = {result[0][-1]:.2f}, time = {result[1][-1]:.2f}')
+            print(f'Chi2/NDF = {f1.GetChisquare() / f1.GetNDF():.2f}')
+            del h1
+        # print(f'weighted RMS = {np.sqrt(np.sum(np.array(rmsList)**2*self.pdfList))}')
+        return rmsList, self.pdfList, ggdParList
 
     def simulate(self):
         ### main function to run the simulation
@@ -251,8 +429,7 @@ class McSimulator:
             l.AddEntry(h1, 'MC simulation', 'lp')
             l.Draw('same')
             c.SaveAs(f'figures/No{len(ggdParList)}.png')
-            print(f'No{len(ggdParList)}: beta = {f1.GetParameter(0):.2f}, alpha = {f1.GetParameter(1):.2f}, rms = {result[0][-1]:.2f}, time = {result[1][-1]:.2f}')
-            print(f'Chi2/NDF = {f1.GetChisquare() / f1.GetNDF():.2f}')
+            print(f'No{len(ggdParList)}: beta = {f1.GetParameter(0):.2f}, alpha = {f1.GetParameter(1):.2f}, rms = {result[0][-1]:.2f}, time = {result[1][-1]:.2f}, Chi2/NDF = {f1.GetChisquare() / f1.GetNDF():.2f}')
             del h1
 
         print(f'weighted RMS = {np.sqrt(np.sum(np.array(rmsList)**2*self.pdfList))}')
