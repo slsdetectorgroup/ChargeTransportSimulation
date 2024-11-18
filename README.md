@@ -8,6 +8,8 @@ The simulator receives detector configurations and X-ray energies.
 ROOT: for histogramming, fitting, and visualization.
 
 numpy: for numerical operations.
+
+torch: for GPU acceleration.
  
 ### Example
 
