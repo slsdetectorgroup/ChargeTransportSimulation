@@ -10,6 +10,7 @@ T = 293 # K
 e = 1.60217662e-19 # electron charge in C
 epsilon = 11.68 * 8.85418782e-12 # F/um
 pi = np.pi
+energyPerPair = 3.62 # eV
 
 class McSimulator:
     def __init__(self, config):
@@ -29,10 +30,7 @@ class McSimulator:
             self.nRepetetion = config['nRepetetion']
         else:
             self.nRepetetion = 1
-        if 'n' in config:
-            self.n = config['n']
-        else:
-            self.n = 100000 ### number of groups of carriers (one group can have less than 1 carrier)
+        self.n = round(self.eIncident / energyPerPair)
         self.tInterval = 0.01 # ns
         self.nThread = 16
         self.zBinning = 64
@@ -112,7 +110,7 @@ class McSimulator:
 
                 ### repulsion
                 if self.repulsionInvolved:
-                    Qr = cdf_rs * self.eIncident / 3.6
+                    Qr = cdf_rs * self.eIncident / energyPerPair
                     E_rep = Qr * e / (4*np.pi*epsilon*rs*rs) * 1e6 ### V/um
                     E_rep_x = E_rep * xs / rs
                     E_rep_y = E_rep * ys / rs
@@ -159,7 +157,7 @@ class McSimulator:
     def simulateOnce2(self, z0): ### z0: the intial position in z in um
         ### another version of the simulation, with repulsion
         ### consider the repulsion between each pair of carriers
-        ### very slow, but accelerated using GPU; results are similar to simulateOnce
+        ### very slow, but accelerated using GPU; more precise for 'high energy' X-ray photons (eIncident > 20 keV)
 
         ret_xs = None
         ret_arr_rms = None
@@ -179,16 +177,14 @@ class McSimulator:
                 finalXs = None
                 ys = torch.normal(0, sigmaInitial, (self.n*2,), device=device, dtype=presion) 
                 zs = torch.normal(z0, sigmaInitial, (self.n*2,), device=device, dtype=presion)
-                q = self.eIncident / 3.62 / self.n
-                qs = torch.ones(self.n*2, device=device, dtype=presion)
+                qs = torch.ones(self.n*2, device=device, dtype=torch.int8)
                 qs[self.n:] = -1 ### sign of charge carriers
             else:
                 xs = torch.normal(0, sigmaInitial, (self.n,), device=device, dtype=presion)
                 finalXs = None
                 ys = torch.normal(0, sigmaInitial, (self.n,), device=device, dtype=presion)
                 zs = torch.normal(z0, sigmaInitial, (self.n,), device=device, dtype=presion)
-                q = self.eIncident / 3.62 / self.n
-                qs = torch.ones(self.n, device=device, dtype=presion)
+                qs = torch.ones(self.n, device=device, dtype=torch.int8)
             mask_holesActive = qs > 0
 
             arr_time = array('d')
@@ -217,9 +213,9 @@ class McSimulator:
                     E_rep2D_x = qq2D * e / (4*pi*epsilon*r2D*r2D) * 1e6 * dx2D / r2D
                     E_rep2D_y = qq2D * e / (4*pi*epsilon*r2D*r2D) * 1e6 * dy2D / r2D
                     E_rep2D_z = qq2D * e / (4*pi*epsilon*r2D*r2D) * 1e6 * dz2D / r2D
-                    E_rep_x = torch.sum(E_rep2D_x, axis=1) * q ### qq2D is the sign of the charge carriers, so no need to multiply q
-                    E_rep_y = torch.sum(E_rep2D_y, axis=1) * q
-                    E_rep_z = torch.sum(E_rep2D_z, axis=1) * q
+                    E_rep_x = torch.sum(E_rep2D_x, axis=1) ### 
+                    E_rep_y = torch.sum(E_rep2D_y, axis=1)
+                    E_rep_z = torch.sum(E_rep2D_z, axis=1)
                 
                     Ez = (self.appliedVoltage - self.depletionVoltage) / self.sensorThickness + self.depletionVoltage * 2 / self.sensorThickness * (zs) / self.sensorThickness
                     
@@ -233,7 +229,7 @@ class McSimulator:
                     xs[mask_holesActive] += u[mask_holesActive] * E_rep_x[mask_holesActive] * self.tInterval
                     ys[mask_holesActive] += u[mask_holesActive] * E_rep_y[mask_holesActive] * self.tInterval
                     zs[mask_holesActive] += u[mask_holesActive] * (E_rep_z+Ez)[mask_holesActive] * self.tInterval
-                    # zs[mask_holes] += u[mask_holes] * (Ez)[mask_holes] * self.tInterval ### without repulsion
+
                     ### update position due to random walk
                     randomWalkStep_1D = torch.sqrt(2 * kBolzman * T / e * u * self.tInterval)
                     _size = len(xs[mask_holesActive])
@@ -247,7 +243,7 @@ class McSimulator:
                     xs[mask_elesActive] -= u[mask_elesActive] * E_rep_x[mask_elesActive] * self.tInterval
                     ys[mask_elesActive] -= u[mask_elesActive] * E_rep_y[mask_elesActive] * self.tInterval
                     zs[mask_elesActive] -= u[mask_elesActive] * (E_rep_z+Ez)[mask_elesActive] * self.tInterval
-                    # zs[mask_eles] -= u[mask_eles] * (Ez)[mask_eles] * self.tInterval ### without repulsion
+
                     ### update position due to random walk
                     _size = len(xs[mask_elesActive])
                     xs[mask_elesActive] += randomWalkStep_1D[mask_elesActive] * (torch.randint(0, 2, (_size,), device=device) * 2 - 1)
@@ -258,7 +254,7 @@ class McSimulator:
 
                     totalTime += self.tInterval
                     arr_time.append(totalTime)
-                    # arr_rms.append(torch.std(xs[mask_holesActive]).item()**2)
+
                     ### calculate rms of holes both active and collected
                     mask_holes = (qs > 0)
                     if finalXs is not None:
@@ -268,10 +264,7 @@ class McSimulator:
                         sumRmsSquare = torch.sum(xs[mask_holes]**2)
                         rms = torch.sqrt(sumRmsSquare / len(xs[mask_holes]))
                     arr_rms.append(rms.item())
-
-                    # print(z0, torch.mean(zs[mask_holes]).item(), len(xs[mask_holes]))
-                    # print(f'active holes: zbar = {torch.mean(zs[mask_holesActive]).item():.2f}+-{torch.std(zs[mask_holesActive]).item():.2f}, xbar = {torch.mean(xs[mask_holesActive]).item():.2f}+-{torch.std(xs[mask_holesActive]).item():.2f}; stopped holes: zbar = {torch.mean(zs[mask_holesStopped]).item():.2f}+-{torch.std(zs[mask_holesStopped]).item():.2f}, xbar = {torch.mean(xs[mask_holesStopped]).item():.2f}+-{torch.std(xs[mask_holesStopped]).item():.2f}')
-                    # print(f'active eles: zbar = {torch.mean(zs[mask_eles]).item():.2f}+-{torch.std(zs[mask_eles]).item():.2f}, xbar = {torch.mean(xs[mask_eles]).item():.2f}+-{torch.std(xs[mask_eles]).item():.2f}; stopped eles: zbar = {torch.mean(zs[mask_elesStopped]).item():.2f}+-{torch.std(zs[mask_elesStopped]).item():.2f}, xbar = {torch.mean(xs[mask_elesStopped]).item():.2f}+-{torch.std(xs[mask_elesStopped]).item():.2f}')
+                    
                 else:
                     Ez = (self.appliedVoltage - self.depletionVoltage) / self.sensorThickness + self.depletionVoltage * 2 / self.sensorThickness * (zs) / self.sensorThickness
                     u = self.get_u_hole(Ez)
@@ -290,8 +283,6 @@ class McSimulator:
                     # print(f'active eles: zbar = {torch.mean(zs[mask_eles]).item():.2f}+-{torch.std(zs[mask_eles]).item():.2f}, xbar = {torch.mean(xs[mask_eles]).item():.2f}+-{torch.std(xs[mask_eles]).item():.2f}; stopped eles: zbar = {torch.mean(zs[mask_elesStopped]).item():.2f}+-{torch.std(zs[mask_elesStopped]).item():.2f}, xbar = {torch.mean(xs[mask_elesStopped]).item():.2f}+-{torch.std(xs[mask_elesStopped]).item():.2f}')
 
                 ### set charge the stopped carriers almost 0, avoid the contribution to the repulsion
-                # qs[mask_holesCollected] = 1e-32
-                # qs[mask_elesStopped] = -1e-32
                 if finalXs is None:
                     finalXs = xs[mask_holesCollected]
                 else:
