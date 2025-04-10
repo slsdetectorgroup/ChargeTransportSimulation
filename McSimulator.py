@@ -51,7 +51,7 @@ class McSimulator:
         E = E * 1e4 ### convert to V/cm
         v_m = 1.43e9 * self.T**(-0.87)
         E_c = 1.01 * self.T**1.55
-        beta_e = 0.46 * self.T**0.17
+        beta_e = 2.57 * self.T**0.66
         u = v_m / E_c / (1 + (E/E_c)**beta_e)**(1/beta_e)
         u = u * 1e-1 ### convert to um^/(V*ns)
         return u
@@ -67,6 +67,7 @@ class McSimulator:
         u = u * 1e-1 ### convert to um^/(V*ns)
         return u
     get_u_hole = get_u_hole111
+    get_u_ele = get_u_ele111
 
     def getEz(self, z): ### E field due to bias voltage
         Ez = (self.appliedVoltage - self.depletionVoltage) / self.sensorThickness + self.depletionVoltage * 2 / self.sensorThickness * (z) / self.sensorThickness
@@ -106,7 +107,7 @@ class McSimulator:
                 cdf_rs = np.array(range(self.n)) / float(self.n)
 
                 Ez = self.getEz(_z0)
-                u = self.get_u_hole111(Ez) ### without repulsion the mobility is the same for all carriers
+                u = self.get_u_hole(Ez) ### without repulsion the mobility is the same for all carriers
 
                 ### repulsion
                 if self.repulsionInvolved:
@@ -219,8 +220,8 @@ class McSimulator:
                 
                     Ez = (self.appliedVoltage - self.depletionVoltage) / self.sensorThickness + self.depletionVoltage * 2 / self.sensorThickness * (zs) / self.sensorThickness
                     
-                    u = self.get_u_hole111(torch.sqrt((Ez + E_rep_z)**2 + E_rep_x**2 + E_rep_y**2))
-                    u_ele = self.get_u_ele111(torch.sqrt((Ez + E_rep_z)**2 + E_rep_x**2 + E_rep_y**2))
+                    u = self.get_u_hole(torch.sqrt((Ez + E_rep_z)**2 + E_rep_x**2 + E_rep_y**2))
+                    u_ele = self.get_u_ele(torch.sqrt((Ez + E_rep_z)**2 + E_rep_x**2 + E_rep_y**2))
                     u[qs < 0] = u_ele[qs < 0]
 
                     ### mask for the active hole carriers: zs < self.sensorThickness and qs > 0
