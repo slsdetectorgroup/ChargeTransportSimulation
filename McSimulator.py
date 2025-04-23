@@ -11,6 +11,7 @@ e = 1.60217662e-19 # electron charge in C
 epsilon = 11.68 * 8.85418782e-12 # F/um
 pi = np.pi
 energyPerPair = 3.62 # eV
+eulaConstant = 2.7182818285
 
 class McSimulator:
     def __init__(self, config):
@@ -30,6 +31,8 @@ class McSimulator:
             self.nRepetetion = config['nRepetetion']
         else:
             self.nRepetetion = 1
+        if 'doping' in config:
+            self.doping = config['doping']
         self.n = round(self.eIncident / energyPerPair)
         self.tInterval = 0.01 # ns
         self.nThread = 16
@@ -66,10 +69,45 @@ class McSimulator:
         u = u_0 / (1 + (u_0*E/v_sat)**beta) ** (1/beta) 
         u = u * 1e-1 ### convert to um^/(V*ns)
         return u
+
+    def get_u_hole_Masetti(self, E): 
+        ### Masetti Model; allpix-manual, 6.2.6
+        E = E * 1e4 ### convert to V/cm
+        u_0h = 44.9
+        u_maxh = 470.5 * (self.T/300)**(-2.2)
+        C_rh = 2.23e17
+        alpha_h = 0.719
+        u_1h = 29.0
+        C_sh = 6.1e20
+        beta_h = 2.0
+        P_c = 9.23e16
+
+        u = u_0h * eulaConstant**(-P_c / self.doping) + u_maxh / (1 + (self.doping/C_rh)**alpha_h) - u_1h / (1 + (C_sh/self.doping)**beta_h) 
+        u = u * 1e-1 ### convert to um^/(V*ns)
+        return u
+    
+    def get_u_ele_Masetti(self, E):
+        ### Masetti Model; allpix-manual, 6.2.6
+        E = E * 1e4 ### convert to V/cm
+        u_0e = 68.5
+        u_maxe = 1414 * (self.T/300)**(-2.5)
+        C_re = 9.2e16
+        alpha_e = 0.711
+        u_1e = 56.1
+        C_se = 3.41e20
+        beta_e = 1.98
+
+        u = u_0e + (u_maxe - u_0e) / (1 + (self.doping/C_re)**alpha_e) - u_1e / (1 + (C_se/self.doping)**beta_e)
+        u = u * 1e-1 ### convert to um^/(V*ns)
+        return u
+
     get_u_hole = get_u_hole111
     get_u_ele = get_u_ele111
+    # get_u_hole = get_u_hole_Masetti
+    # get_u_ele = get_u_ele_Masetti
 
     def getEz(self, z): ### E field due to bias voltage
+        ### deplet from the pixel side (near end)
         Ez = (self.appliedVoltage - self.depletionVoltage) / self.sensorThickness + self.depletionVoltage * 2 / self.sensorThickness * (z) / self.sensorThickness
         if z > self.sensorThickness:
             Ez = (self.appliedVoltage - self.depletionVoltage) / self.sensorThickness + self.depletionVoltage * 2 / self.sensorThickness
