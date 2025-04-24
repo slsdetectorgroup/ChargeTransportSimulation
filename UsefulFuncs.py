@@ -39,7 +39,7 @@ def convertAduFrameToEnergyFrame(aduFrame):
 
     return energyFrame
 
-def bookHistograms(energy, suffix = '', energyBinWidth = 0.1):
+def bookHistograms(energy, suffix = '', energyBinWidth = 0.1, isMC = False):
     histMaxEnergy = energy * 1.3
     h1_ClusterEnergy = TH1D(f'h1_ClusterEnergy{suffix}', f'h1_ClusterEnergy{suffix}', int(histMaxEnergy//energyBinWidth), -1, histMaxEnergy)
     h1_ClusterEnergy.SetTitle(f'Cluster Energy;Energy [keV];Counts')
@@ -47,8 +47,12 @@ def bookHistograms(energy, suffix = '', energyBinWidth = 0.1):
     h1_PixelEnergy.SetTitle(f'Pixel Energy;Energy [keV];Counts')
     h1_CenterPixelEnergy = TH1D(f'h1_CenterPixelEnergy{suffix}', f'h1_CenterPixelEnergy{suffix}', int(histMaxEnergy//energyBinWidth), -1, histMaxEnergy)
     h1_CenterPixelEnergy.SetTitle(f'Center Pixel Energy;Energy [keV];Counts')
-    h2_Qc = TH2D(f'h2_Qc{suffix}', f'h2_Qc{suffix}', 101, 0, 101, 0, 101)
+    h2_Qc = TH2D(f'h2_Qc{suffix}', f'h2_Qc{suffix}', 101, 0, 1, 101, 0, 1)
     h2_Qc.SetTitle(f'Charge weighted center;#eta_x;#eta_y;Counts')
+
+    if isMC:
+        h1_ChargeCollectionEfficiency = TH1D(f'h1_ChargeCollectionEfficiency{suffix}', f'h1_ChargeCollectionEfficiency{suffix}', 400, 0.8, 1.01)
+        return h1_ClusterEnergy.Clone(), h1_PixelEnergy.Clone(), h1_CenterPixelEnergy.Clone(), h2_Qc.Clone(), h1_ChargeCollectionEfficiency.Clone()
 
     return h1_ClusterEnergy.Clone(), h1_PixelEnergy.Clone(), h1_CenterPixelEnergy.Clone(), h2_Qc.Clone()
 
@@ -58,6 +62,7 @@ def _processOneFrame(idxFrame):
     Energy = _cfg['energy']
     selectionRange = _cfg['selectionRange']
     signalFileNames = _cfg['signalFileNames']
+    clusterWidth = _cfg['clusterWidth']
     NX = _cfg['NX']
     NY = _cfg['NY']
     headerSize = _cfg['headerSize']
@@ -95,7 +100,8 @@ def _processOneFrame(idxFrame):
                 continue
 
             ### get the cluster
-            pixleEnergies = signalEneFrame[y-1:y+2, x-1:x+2].flatten()
+            # pixleEnergies = signalEneFrame[y-1:y+2, x-1:x+2].flatten()
+            pixleEnergies = signalEneFrame[y-clusterWidth//2:y+clusterWidth//2+1, x-clusterWidth//2:x+clusterWidth//2+1].flatten()
             clusterEnergy = np.sum(pixleEnergies)
             _h1_ClusterEnergy.Fill(clusterEnergy)
             
@@ -103,8 +109,8 @@ def _processOneFrame(idxFrame):
             if Energy - selectionRange < clusterEnergy < Energy + selectionRange:
                 _h1_CenterPixelEnergy.Fill(signalEneFrame[y, x])
                 _h1_PixelEnergy.FillN(len(pixleEnergies), array('d', pixleEnergies), array('d', np.ones(len(pixleEnergies))))
-                x_qc = (np.average(np.arange(3), weights=signalEneFrame[y-1:y+2, x-1:x+2].sum(axis=1)) + 0.5)%1
-                y_qc = (np.average(np.arange(3), weights=signalEneFrame[y-1:y+2, x-1:x+2].sum(axis=0)) + 0.5)%1
+                x_qc = (np.average(np.arange(clusterWidth), weights=signalEneFrame[y-clusterWidth//2:y+clusterWidth//2+1, x-clusterWidth//2:x+clusterWidth//2+1].sum(axis=0)) + 0.5)%1
+                y_qc = (np.average(np.arange(clusterWidth), weights=signalEneFrame[y-clusterWidth//2:y+clusterWidth//2+1, x-clusterWidth//2:x+clusterWidth//2+1].sum(axis=1)) + 0.5)%1
                 _h2_Qc.Fill(x_qc, y_qc)
 
     return _h1_ClusterEnergy.Clone(), _h1_PixelEnergy.Clone(), _h1_CenterPixelEnergy.Clone(), _h2_Qc.Clone()
