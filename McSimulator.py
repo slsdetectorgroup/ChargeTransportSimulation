@@ -199,6 +199,7 @@ class McSimulator:
         ### very slow, but accelerated using GPU; more precise for 'high energy' X-ray photons (eIncident > 20 keV)
 
         ret_xs = None
+        ret_ys = None
         ret_arr_rms = None
         ret_arr_time = None
         _sumArrRmsSquare = None
@@ -211,16 +212,16 @@ class McSimulator:
 
             ### initial distribution
             sigmaInitial = 0.00443* (self.eIncident/1000)**1.75 ### um
+            finalXs = None
+            finalYs = None
             if self.electronInvolved:
                 xs = torch.normal(0, sigmaInitial, (self.n*2,), device=device, dtype=presion) ### double the number of carriers for both holes and electrons
-                finalXs = None
                 ys = torch.normal(0, sigmaInitial, (self.n*2,), device=device, dtype=presion) 
                 zs = torch.normal(z0, sigmaInitial, (self.n*2,), device=device, dtype=presion)
                 qs = torch.ones(self.n*2, device=device, dtype=torch.int8)
                 qs[self.n:] = -1 ### sign of charge carriers
             else:
                 xs = torch.normal(0, sigmaInitial, (self.n,), device=device, dtype=presion)
-                finalXs = None
                 ys = torch.normal(0, sigmaInitial, (self.n,), device=device, dtype=presion)
                 zs = torch.normal(z0, sigmaInitial, (self.n,), device=device, dtype=presion)
                 qs = torch.ones(self.n, device=device, dtype=torch.int8)
@@ -324,8 +325,10 @@ class McSimulator:
                 ### set charge the stopped carriers almost 0, avoid the contribution to the repulsion
                 if finalXs is None:
                     finalXs = xs[mask_holesCollected]
+                    finalYs = ys[mask_holesCollected]
                 else:
                     finalXs = torch.cat((finalXs, xs[mask_holesCollected]), 0)
+                    finalYs = torch.cat((finalYs, ys[mask_holesCollected]), 0)
                 if len(xs[mask_holesActive]) == 0:
                     break
                 
@@ -338,10 +341,12 @@ class McSimulator:
                 
             if idx_reptetion == 0:
                 ret_xs = finalXs.cpu().numpy()
+                ret_ys = finalYs.cpu().numpy()
                 _sumArrRmsSquare = np.array(arr_rms)**2
                 ret_arr_time = arr_time
             else:
                 ret_xs = np.concatenate((ret_xs, finalXs.cpu().numpy()))
+                ret_ys = np.concatenate((ret_ys, finalYs.cpu().numpy()))
                 _size = min(len(_sumArrRmsSquare), len(arr_rms))
                 _sumArrRmsSquare[:_size] += np.array(arr_rms[:_size])**2
 
@@ -349,7 +354,7 @@ class McSimulator:
         ret_arr_rms = np.sqrt(_sumArrRmsSquare)
         ret_arr_rms = array('d', ret_arr_rms)
         ret_arr_time = ret_arr_time[:len(ret_arr_rms)]
-        return ret_arr_rms, ret_arr_time, ret_xs
+        return ret_arr_rms, ret_arr_time, ret_xs, ret_ys
 
     def simulate2(self):
         ### main function to run the simulation
@@ -374,9 +379,8 @@ class McSimulator:
             _binWidth = _rms / 20
             _nBin = int(100 / _binWidth)
             h1 = TH1D('h1', 'h1', _nBin, -5 *_rms, 5 * _rms)
-            h1.FillN(len(result[2]), array('d', result[2]), np.ones(len(result[2])))
-            # for x in result[2]:
-            #     h1.Fill(x)
+            h1.FillN(len(result[2]), array('d', result[2]), np.ones(len(result[2]))) ### xs
+            h1.FillN(len(result[3]), array('d', result[3]), np.ones(len(result[3]))) ### ys, as x and y are symmetric
             def ggd(x, par):
                 beta = par[0]
                 alpha = par[1]
@@ -388,8 +392,7 @@ class McSimulator:
             if len(ggdParList) == 0:
                 f1.SetParameters(2, 10)
             else:
-                f1.SetParameters(0, ggdParList[-1][0])
-                f1.SetParameters(1, ggdParList[-1][1])
+                f1.SetParameters(ggdParList[-1][0], ggdParList[-1][1])
             h1.Scale(h1.GetNbinsX()/(10*_rms) /h1.Integral())
             h1.Fit(f1, 'Q')
             ggdParList.append((f1.GetParameter(0), f1.GetParameter(1)))
