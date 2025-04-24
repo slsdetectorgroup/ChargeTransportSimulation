@@ -19,16 +19,24 @@ def init(cfg):
 
 def convertAduFrameToEnergyFrame(aduFrame):
     NX, NY = _cfg['NX'], _cfg['NY']
-    # signFrame = np.sign(aduFrame)
-    idxFrame = (np.abs(aduFrame//10)).astype(np.int32)
-    idxFrame[idxFrame > _aduToKev3DMap.shape[0]-2] = _aduToKev3DMap.shape[0]-2
-    NY, NX = _aduToKev3DMap.shape[1:3]
-    _energyFrame0 = _aduToKev3DMap[idxFrame, np.arange(NY).reshape(-1, 1), np.arange(NX)]
-    _energyFrame1 = _aduToKev3DMap[idxFrame+1, np.arange(NY).reshape(-1, 1), np.arange(NX)]
-    energyFrame = _energyFrame0 + (_energyFrame1 - _energyFrame0)/10 * (np.abs(aduFrame) - idxFrame*10)
-    energyFrame *= np.sign(aduFrame)
-    if 'energyScalingFactor' in _cfg:
-        energyFrame *= _cfg['energyScalingFactor']
+    if _aduToKev3DMap.shape[0] == 1640:
+        idxFrame = (np.abs(aduFrame//10)).astype(np.int32)
+        idxFrame[idxFrame > _aduToKev3DMap.shape[0]-2] = _aduToKev3DMap.shape[0]-2
+        NY, NX = _aduToKev3DMap.shape[1:3]
+        _energyFrame0 = _aduToKev3DMap[idxFrame, np.arange(NY).reshape(-1, 1), np.arange(NX)]
+        _energyFrame1 = _aduToKev3DMap[idxFrame+1, np.arange(NY).reshape(-1, 1), np.arange(NX)]
+        energyFrame = _energyFrame0 + (_energyFrame1 - _energyFrame0)/10 * (np.abs(aduFrame) - idxFrame*10)
+        energyFrame *= np.sign(aduFrame)
+        if 'energyScalingFactor' in _cfg:
+            energyFrame *= _cfg['energyScalingFactor']
+    elif _aduToKev3DMap.shape[0] == 1740: ### -1000 ADU to 0 in the first 100 bins
+        idxFrame = (aduFrame//10).astype(np.int32) + 100 ### -100:0: the extra negative part
+        idxFrame[idxFrame > _aduToKev3DMap.shape[0]-2] = _aduToKev3DMap.shape[0]-2
+        NY, NX = _aduToKev3DMap.shape[1:3]
+        _energyFrame0 = _aduToKev3DMap[idxFrame, np.arange(NY).reshape(-1, 1), np.arange(NX)]
+        _energyFrame1 = _aduToKev3DMap[idxFrame+1, np.arange(NY).reshape(-1, 1), np.arange(NX)]
+        energyFrame = _energyFrame0 + (_energyFrame1 - _energyFrame0)/10 * (aduFrame - (idxFrame-100)*10)
+
     return energyFrame
 
 def bookHistograms(energy, suffix = '', energyBinWidth = 0.1):
@@ -152,3 +160,18 @@ def getPedestalAndNoise():
     _noiseEneFrame = np.std(pedestalEneFrames, axis=0, ddof=1)
     print(f'Average noise = {np.mean(_noiseEneFrame):.3f} keV; {np.mean(noiseAduFrame):.3f} ADU')
     del pedestalAduFrames, pedestalEneFrames
+
+def getPedestalAndNoise_simplified():
+    NX, NY = _cfg['NX'], _cfg['NY']
+    pedestalFileName = _cfg['pedestalFileName']
+    pedestalAduFrames = np.fromfile(f'{pedestalFileName}', dtype=np.uint16).astype(np.int32)
+    pedestalAduFrames = pedestalAduFrames.reshape(-1, NX * NY + 56)
+    pedestalAduFrames = pedestalAduFrames[:, 56:].reshape(-1, NX, NY)
+    pedestalAduFrames = pedestalAduFrames[pedestalAduFrames.shape[0]//10:]  # skip the first 10% frames
+    global _pedestalAduFrame, _noiseEneFrame
+    _pedestalAduFrame = np.mean(pedestalAduFrames, axis=0)
+    noiseAduFrame = np.std(pedestalAduFrames, axis=0, ddof=1)
+    _noiseEneFrame = convertAduFrameToEnergyFrame(noiseAduFrame)
+    
+    print(f'Average noise = {np.mean(_noiseEneFrame):.3f} keV; {np.mean(noiseAduFrame):.3f} ADU')
+    del pedestalAduFrames
