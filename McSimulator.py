@@ -391,7 +391,7 @@ class McSimulator:
                 return coef * TMath.Exp(-TMath.Power((abs(x[0] - 0) / alpha), beta))
             f1 = TF1('f1', ggd, -5 * _rms, 5 * _rms, 2) ### par[0]: beta, par[1]: alpha
             f1.SetParLimits(0, 2, 5)
-            f1.SetParLimits(1, 1.5, 20)
+            f1.SetParLimits(1, 1.5, 30)
             if len(ggdParList) == 0:
                 f1.SetParameters(2, 10)
             else:
@@ -428,7 +428,7 @@ class McSimulator:
         for idx in range(len(xsList)):
             xs = np.load(xsList[idx])
             _rms = np.std(xs)
-            print(f'rms = {_rms:.2f}')
+            # print(f'rms = {_rms:.2f}, {xsList[idx]}')
             _binWidth = _rms / 20
             _nBin = int(100 / _binWidth)
             h1 = TH1D('h1', 'h1', _nBin, -5 *_rms, 5 * _rms)
@@ -443,11 +443,8 @@ class McSimulator:
                 return coef * TMath.Exp(-TMath.Power((abs(x[0] - 0) / alpha), beta))
             f1 = TF1('f1', ggd, -5 * _rms, 5 * _rms, 2) ### par[0]: beta, par[1]: alpha
             f1.SetParLimits(0, 2, 5)
-            f1.SetParLimits(1, 1.5, 20)
-            if len(ggdParList) == 0:
-                f1.SetParameters(2, 10)
-            else:
-                f1.SetParameters(ggdParList[-1][0], ggdParList[-1][1])
+            f1.SetParLimits(1, 1.5, 30)
+            f1.SetParameters(2., _rms*1.5)
             h1.Scale(h1.GetNbinsX()/(10*_rms) /h1.Integral())
             h1.Fit(f1, 'Q')
             ggdParList.append((f1.GetParameter(0), f1.GetParameter(1)))
@@ -495,7 +492,7 @@ class McSimulator:
                 return coef * TMath.Exp(-TMath.Power((abs(x[0] - 0) / alpha), beta))
             f1 = TF1('f1', ggd, -5 * _rms, 5 * _rms, 2) ### par[0]: beta, par[1]: alpha
             f1.SetParLimits(0, 2, 5)
-            f1.SetParLimits(1, 1.5, 20)
+            f1.SetParLimits(1, 1.5, 30)
             if len(ggdParList) == 0:
                 f1.SetParameters(2, 10)
             else:

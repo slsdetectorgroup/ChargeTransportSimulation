@@ -27,8 +27,6 @@ def convertAduFrameToEnergyFrame(aduFrame):
         _energyFrame1 = _aduToKev3DMap[idxFrame+1, np.arange(NY).reshape(-1, 1), np.arange(NX)]
         energyFrame = _energyFrame0 + (_energyFrame1 - _energyFrame0)/10 * (np.abs(aduFrame) - idxFrame*10)
         energyFrame *= np.sign(aduFrame)
-        if 'energyScalingFactor' in _cfg:
-            energyFrame *= _cfg['energyScalingFactor']
     elif _aduToKev3DMap.shape[0] == 1740: ### -1000 ADU to 0 in the first 100 bins
         idxFrame = (aduFrame//10).astype(np.int32) + 100 ### -100:0: the extra negative part
         idxFrame[idxFrame > _aduToKev3DMap.shape[0]-2] = _aduToKev3DMap.shape[0]-2
@@ -37,6 +35,8 @@ def convertAduFrameToEnergyFrame(aduFrame):
         _energyFrame1 = _aduToKev3DMap[idxFrame+1, np.arange(NY).reshape(-1, 1), np.arange(NX)]
         energyFrame = _energyFrame0 + (_energyFrame1 - _energyFrame0)/10 * (aduFrame - (idxFrame-100)*10)
 
+    if 'energyScalingFactor' in _cfg:
+        energyFrame *= _cfg['energyScalingFactor']
     return energyFrame
 
 def bookHistograms(energy, suffix = '', energyBinWidth = 0.1, isMC = False):
