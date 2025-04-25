@@ -118,6 +118,7 @@ class McSimulator:
         ### only return MC simulation results, no change to class variables
 
         ret_xs = None
+        ret_ys = None
         ret_arr_rms = None
         ret_arr_time = None
         for idx_reptetion in range(self.nRepetetion):
@@ -187,11 +188,13 @@ class McSimulator:
 
             if idx_reptetion == 0:
                 ret_xs = xs
+                ret_ys = ys
                 ret_arr_rms = arr_rms
                 ret_arr_time = arr_time
             else:
                 ret_xs = np.concatenate((ret_xs, xs))
-        return ret_arr_rms, ret_arr_time, ret_xs
+                ret_ys = np.concatenate((ret_ys, ys))
+        return ret_arr_rms, ret_arr_time, ret_xs, ret_ys
 
     def simulateOnce2(self, z0): ### z0: the intial position in z in um
         ### another version of the simulation, with repulsion
@@ -413,6 +416,58 @@ class McSimulator:
         # print(f'weighted RMS = {np.sqrt(np.sum(np.array(rmsList)**2*self.pdfList))}')
         return rmsList, self.pdfList, ggdParList
 
+    def simulate2_fromFiles(self, xsList, ysList=None):
+        ### main function to run the simulation
+        self.zList = np.linspace(0, self.sensorThickness, self.zBinning+1)
+        self.z0List = (self.zList[:-1] + self.zList[1:])/2
+        self.pdfList = (1 - np.exp(-self.zList[1:]/self.attenuationLength) - (1 - np.exp(-self.zList[:-1]/self.attenuationLength)))
+        self.pdfList /= np.sum(self.pdfList) ### renormalized
+
+        ggdParList = [] ### (beta, alpha) of the Generalized Gaussian Distribution fitting the distribution
+        rmsList = []
+        for idx in range(len(xsList)):
+            xs = np.load(xsList[idx])
+            _rms = np.std(xs)
+            print(f'rms = {_rms:.2f}')
+            _binWidth = _rms / 20
+            _nBin = int(100 / _binWidth)
+            h1 = TH1D('h1', 'h1', _nBin, -5 *_rms, 5 * _rms)
+            h1.FillN(len(xs), array('d', xs), np.ones(len(xs))) ### xs
+            if ysList is not None:
+                ys = np.load(ysList[idx])
+                h1.FillN(len(ys), array('d', ys), np.ones(len(ys)))### ys, as x and y are symmetric
+            def ggd(x, par):
+                beta = par[0]
+                alpha = par[1]
+                coef = beta / (2 * alpha * TMath.Gamma(1 / beta))
+                return coef * TMath.Exp(-TMath.Power((abs(x[0] - 0) / alpha), beta))
+            f1 = TF1('f1', ggd, -5 * _rms, 5 * _rms, 2) ### par[0]: beta, par[1]: alpha
+            f1.SetParLimits(0, 2, 5)
+            f1.SetParLimits(1, 1.5, 20)
+            if len(ggdParList) == 0:
+                f1.SetParameters(2, 10)
+            else:
+                f1.SetParameters(ggdParList[-1][0], ggdParList[-1][1])
+            h1.Scale(h1.GetNbinsX()/(10*_rms) /h1.Integral())
+            h1.Fit(f1, 'Q')
+            ggdParList.append((f1.GetParameter(0), f1.GetParameter(1)))
+            c = TCanvas()
+            c.SetCanvasSize(800, 800)
+            h1.SetTitle(';X [#mum];Normalized Counts')
+            h1.GetYaxis().SetRangeUser(0, 1.4*h1.GetMaximum())
+            h1.Draw()
+            f1.SetLineWidth(1)
+            l = TLegend(0.5, 0.65, 0.8, 0.85)
+            l.AddEntry(f1, 'GGD fit', 'lp')
+            l.AddEntry(h1, 'MC simulation', 'lp')
+            l.Draw('same')
+            c.SaveAs(f'figures/No{len(ggdParList)}.png')
+            print(f'No{len(ggdParList)}: beta = {f1.GetParameter(0):.2f}, alpha = {f1.GetParameter(1):.2f}, rms = {_rms:.2f}')
+            print(f'Chi2/NDF = {f1.GetChisquare() / f1.GetNDF():.2f}')
+            del h1
+        # print(f'weighted RMS = {np.sqrt(np.sum(np.array(rmsList)**2*self.pdfList))}')
+        return rmsList, self.pdfList, ggdParList
+
     def simulate(self):
         ### main function to run the simulation
         self.zList = np.linspace(0, self.sensorThickness, self.zBinning+1)
@@ -433,8 +488,6 @@ class McSimulator:
             _nBin = int(100 / _binWidth)
             h1 = TH1D('h1', 'h1', _nBin, -5 *_rms, 5 * _rms)
             h1.FillN(len(result[2]), result[2], np.ones(len(result[2])))
-            # for x in result[2]:
-            #     h1.Fill(x)
             def ggd(x, par):
                 beta = par[0]
                 alpha = par[1]
