@@ -391,11 +391,9 @@ class McSimulator:
                 return coef * TMath.Exp(-TMath.Power((abs(x[0] - 0) / alpha), beta))
             f1 = TF1('f1', ggd, -5 * _rms, 5 * _rms, 2) ### par[0]: beta, par[1]: alpha
             f1.SetParLimits(0, 2, 5)
-            f1.SetParLimits(1, 1.5, 30)
-            if len(ggdParList) == 0:
-                f1.SetParameters(2, 10)
-            else:
-                f1.SetParameters(ggdParList[-1][0], ggdParList[-1][1])
+            f1.SetParLimits(1, .5, 30)
+            f1.SetParameters(2., _rms*1.5)
+
             h1.Scale(h1.GetNbinsX()/(10*_rms) /h1.Integral())
             h1.Fit(f1, 'Q')
             ggdParList.append((f1.GetParameter(0), f1.GetParameter(1)))
@@ -415,6 +413,36 @@ class McSimulator:
             del h1
         # print(f'weighted RMS = {np.sqrt(np.sum(np.array(rmsList)**2*self.pdfList))}')
         return rmsList, self.pdfList, ggdParList
+
+    def simulate2_fromParameters(self, pars_alpha, pars_beta):
+        self.zBinning = 1024
+        print(f'Overwrite zBinning = {self.zBinning}')
+        self.zList = np.linspace(0, self.sensorThickness, self.zBinning+1)
+        self.z0List = (self.zList[:-1] + self.zList[1:])/2
+        self.pdfList = (1 - np.exp(-self.zList[1:]/self.attenuationLength) - (1 - np.exp(-self.zList[:-1]/self.attenuationLength)))
+        self.pdfList /= np.sum(self.pdfList) ### renormalized
+
+        ggdParList = [] ### (beta, alpha) of the Generalized Gaussian Distribution fitting the distribution
+        func_betaT = TF1('func_betaT', '[0]*x^[1]+ [2]*exp([3]*x) + 2')
+        func_betaT.SetParameters(pars_beta[0], pars_beta[1], pars_beta[2], pars_beta[3])
+        func_alphaT = TF1('func_alpha', '[0] + [1] * sqrt((x)) + [2] * x + [3] * x^2')
+        func_alphaT.SetParameters(pars_alpha[0], pars_alpha[1], pars_alpha[2], pars_alpha[3])
+        def getDriftTime(z0):
+            z = z0
+            t = 0
+            while z < self.sensorThickness:
+                ez = self.getEz(z)
+                u = self.get_u_hole111(ez)
+                v = u*ez
+                z += v * self.tInterval
+                t += self.tInterval
+            return t
+        for z0 in self.z0List:
+            t = getDriftTime(z0)
+            beta = func_betaT.Eval(t)
+            alpha = func_alphaT.Eval(t)
+            ggdParList.append((beta, alpha))
+        return self.pdfList, ggdParList
 
     def simulate2_fromFiles(self, xsList, ysList=None):
         ### main function to run the simulation
@@ -443,7 +471,7 @@ class McSimulator:
                 return coef * TMath.Exp(-TMath.Power((abs(x[0] - 0) / alpha), beta))
             f1 = TF1('f1', ggd, -5 * _rms, 5 * _rms, 2) ### par[0]: beta, par[1]: alpha
             f1.SetParLimits(0, 2, 5)
-            f1.SetParLimits(1, 1.5, 30)
+            f1.SetParLimits(1, .5, 30)
             f1.SetParameters(2., _rms*1.5)
             h1.Scale(h1.GetNbinsX()/(10*_rms) /h1.Integral())
             h1.Fit(f1, 'Q')
@@ -492,12 +520,9 @@ class McSimulator:
                 return coef * TMath.Exp(-TMath.Power((abs(x[0] - 0) / alpha), beta))
             f1 = TF1('f1', ggd, -5 * _rms, 5 * _rms, 2) ### par[0]: beta, par[1]: alpha
             f1.SetParLimits(0, 2, 5)
-            f1.SetParLimits(1, 1.5, 30)
-            if len(ggdParList) == 0:
-                f1.SetParameters(2, 10)
-            else:
-                f1.SetParameters(0, ggdParList[-1][0])
-                f1.SetParameters(1, ggdParList[-1][1])
+            f1.SetParLimits(1, .5, 30)
+            f1.SetParameters(2., _rms*1.5)
+
             h1.Scale(h1.GetNbinsX()/(10*_rms) /h1.Integral())
             h1.Fit(f1, 'Q')
             ggdParList.append((f1.GetParameter(0), f1.GetParameter(1)))
