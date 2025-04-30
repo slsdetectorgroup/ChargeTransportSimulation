@@ -278,6 +278,8 @@ class McSimulator:
                 else:
                     Ez = (self.appliedVoltage - self.depletionVoltage) / self.sensorThickness + self.depletionVoltage * 2 / self.sensorThickness * (zs) / self.sensorThickness
                     u = self.get_u_hole(Ez)
+                    u_ele = self.get_u_ele(Ez)
+                    u[qs < 0] = u_ele[qs < 0]
                     randomWalkStep_1D = torch.sqrt(2 * kBolzman * T / e * u * self.tInterval)
                     mask_active = (zs < self.sensorThickness) & (zs > 0)
                     _size = len(xs[mask_active])
@@ -289,8 +291,7 @@ class McSimulator:
                     mask_holesCollected = zs >= self.sensorThickness
                     mask_elesActive = (zs > 0) & (qs < 0)
                     mask_elesStopped = zs <= 0
-                    # print(f'active holes: zbar = {torch.mean(zs[mask_holes]).item():.2f}+-{torch.std(zs[mask_holes]).item():.2f}, xbar = {torch.mean(xs[mask_holes]).item():.2f}+-{torch.std(xs[mask_holes]).item():.2f}; stopped holes: zbar = {torch.mean(zs[mask_holesStopped]).item():.2f}+-{torch.std(zs[mask_holesStopped]).item():.2f}, xbar = {torch.mean(xs[mask_holesStopped]).item():.2f}+-{torch.std(xs[mask_holesStopped]).item():.2f}')
-                    # print(f'active eles: zbar = {torch.mean(zs[mask_eles]).item():.2f}+-{torch.std(zs[mask_eles]).item():.2f}, xbar = {torch.mean(xs[mask_eles]).item():.2f}+-{torch.std(xs[mask_eles]).item():.2f}; stopped eles: zbar = {torch.mean(zs[mask_elesStopped]).item():.2f}+-{torch.std(zs[mask_elesStopped]).item():.2f}, xbar = {torch.mean(xs[mask_elesStopped]).item():.2f}+-{torch.std(xs[mask_elesStopped]).item():.2f}')
+                    totalTime += self.tInterval
 
                 ### set charge the stopped carriers almost 0, avoid the contribution to the repulsion
                 if finalXs is None:
