@@ -250,9 +250,9 @@ class McSimulator:
                     ### mask for the active electron carriers: zs > 0 and qs < 0
                     mask_elesActive = (zs > 0) & (qs < 0) & (zs < self.sensorThickness)
                     mask_elesStopped = (zs <= 0) & (qs < 0)
-                    xs[mask_elesActive] -= u[mask_elesActive] * E_rep_x[mask_elesActive] * self.tInterval
-                    ys[mask_elesActive] -= u[mask_elesActive] * E_rep_y[mask_elesActive] * self.tInterval
-                    zs[mask_elesActive] -= u[mask_elesActive] * (E_rep_z+Ez)[mask_elesActive] * self.tInterval
+                    xs[mask_elesActive] += u[mask_elesActive] * E_rep_x[mask_elesActive] * self.tInterval
+                    ys[mask_elesActive] += u[mask_elesActive] * E_rep_y[mask_elesActive] * self.tInterval
+                    zs[mask_elesActive] += u[mask_elesActive] * (E_rep_z-Ez)[mask_elesActive] * self.tInterval
 
                     ### update position due to random walk
                     _size = len(xs[mask_elesActive])
