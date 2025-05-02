@@ -395,18 +395,20 @@ class McSimulator:
         func_betaT.SetParameters(pars_beta[0], pars_beta[1], pars_beta[2], pars_beta[3])
         func_alphaT = TF1('func_alpha', '[0] + [1] * sqrt((x)) + [2] * x + [3] * x^2')
         func_alphaT.SetParameters(pars_alpha[0], pars_alpha[1], pars_alpha[2], pars_alpha[3])
-        def getDriftTime(z0):
-            z = z0
-            t = 0
-            while z < self.sensorThickness:
-                ez = self.getEz(z)
-                u = self.get_u_hole111(ez)
-                v = u*ez
-                z += v * self.tInterval
-                t += self.tInterval
+        
+        def getDriftTime_allpix2_8p23(z0):
+            ### unit: V, cm, ns, K
+            T = self.T
+            v_m = 1.62e8 * T**(-0.52) # cm/s
+            E_c = 1.24 * T**1.68 # V/cm
+            u0 = v_m / E_c # cm^2/V/s
+            k = 21.6 * 2 / (320 * 1e-4)**2 ### um to cm
+            t = 1 / u0 * ((self.sensorThickness - z0)*1e-4/E_c + log(self.getEz(self.sensorThickness)/self.getEz(z0)) /k)
+            t *= 1e9 # convert to ns
             return t
+
         for z0 in self.z0List:
-            t = getDriftTime(z0)
+            t = getDriftTime_allpix2_8p23(z0)
             beta = func_betaT.Eval(t)
             alpha = func_alphaT.Eval(t)
             ggdParList.append((beta, alpha))
