@@ -29,10 +29,11 @@ def parameterization():
     simulationMethod = _cfg['simulationMethod']
     sensorThickness = _cfg['sensorThickness'] # cm
     energy = _cfg['energy'] ### eV
+    reultsPath = _cfg['resultsPath']
 
     print(f'Processing {sensorCode} {biasVoltage}V {element} {simulationMethod} with {zBins} bins')
-    xsFiles = [f'/home/xie_x1/MLED/McSimulation/BatchResults/{sensorCode}_{biasVoltage}V_xs_{element}_{i}_of_{zBins}_{simulationMethod}.npy' for i in range(zBins)]
-    ysFiles = [f'/home/xie_x1/MLED/McSimulation/BatchResults/{sensorCode}_{biasVoltage}V_ys_{element}_{i}_of_{zBins}_{simulationMethod}.npy' for i in range(zBins)]
+    xsFiles = [f'{reultsPath}/{sensorCode}_{biasVoltage}V_xs_{element}_{i}_of_{zBins}_{simulationMethod}.npy' for i in range(zBins)]
+    ysFiles = [f'{reultsPath}/{sensorCode}_{biasVoltage}V_ys_{element}_{i}_of_{zBins}_{simulationMethod}.npy' for i in range(zBins)]
     ggdParList, ggdParUncertList = [], []
 
     for i in range(zBins):

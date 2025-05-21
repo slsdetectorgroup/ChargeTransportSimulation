@@ -1,6 +1,6 @@
 ## Charge Carrier Transport Simulator
 
-This project implements a Monte Carlo simulation to model charge carrier transport in silicon sensors, incorporating  initial charge distribution, drift, charge diffusion, and especially charge repulsion.
+This project implements two Monte Carlo simulation methods to model charge carrier transport in silicon sensors, incorporating the initial charge distribution, drift, charge diffusion, and especially charge repulsion.
 The simulator receives detector configurations and X-ray energies.
 
 ### Required libraries
@@ -13,9 +13,9 @@ torch: for GPU acceleration.
  
 ### Example
 
-See the Example.ipynb notebook for a demonstration of the simulator.
-The histograms from measurements using MÖNCH detector are provided in the Measurements.root file, and decoded in the Example.ipynb notebook.
-
+See the Example.ipynb notebook for details.
+The histograms from measurements using MÖNCH detector are stored in the Measurements.root file, and decoded in the Example.ipynb notebook.
+Measurement data were taken at METROLOGIE beamline, SOLEIL, France using MÖNCH detectors collecting low-flux and monochromatic X-rays at different energies.
  
 ### License
 
