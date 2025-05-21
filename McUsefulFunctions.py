@@ -72,15 +72,18 @@ def parameterization():
     c = TCanvas()
     c.SetCanvasSize(1600, 800)
     c.Divide(2, 1)
+    # c.SetCanvasSize(800, 1375//2)
+    c.SetTopMargin(0.05)
+    c.SetRightMargin(0.05)
 
     global gr_AlphaT, gr_BetaT
     pad2 = c.cd(1)
     gr_AlphaT = TGraphErrors(len(arr_z0), arr_t, arr_alpha, array('d', np.zeros(len(arr_z0))), arr_alphaUncert)
     gr_AlphaT.SetTitle(';Approximated Drift Time [ns];#alpha')
     func_alpha = TF1('func_alpha', '[0] + [1] * sqrt((x)) + [2] * x + [3] * x^2')
+    func_alpha.SetLineColor(kRed+1)
     gr_AlphaT.Fit(func_alpha, '')
     # set fit line color
-    func_alpha.SetLineColor(2)
     gr_AlphaT.Draw()
     print(f'Alpha fitting chi2/NDF = {func_alpha.GetChisquare()/func_alpha.GetNDF()}')
 
@@ -88,6 +91,7 @@ def parameterization():
     gr_BetaT = TGraphErrors(len(arr_z0), arr_t, arr_beta, array('d', np.zeros(len(arr_z0))), arr_betaUncert)
     func_betaT = TF1('func_betaT', '[0]*x^[1]+ [2]*exp([3]*x) + 2')
     func_betaT.SetParameters(3.5, -.5, 5, -5)
+    func_betaT.SetLineColor(kRed+1)
     gr_BetaT.Fit(func_betaT, '')
     gr_BetaT.SetTitle(';Approximated Drift Time [ns];#beta')
     gr_BetaT.Draw()

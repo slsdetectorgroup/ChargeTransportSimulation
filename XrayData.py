@@ -8,7 +8,8 @@ energyDict = { ### https://xdb.lbl.gov/Section1/Table_1-2.pdf
     'Cu': 8.0478, 'Cu_alpha2':  8.0278, 'Cu_beta':8.9053,
     'Fe': 6.404, 'Fe_beta':7.079,
     'Ti': 4.51,
-    '10keV': 10,'15keV': 15, '20keV':20, '25keV':25,
+    '5keV': 5, '10keV': 10,'15keV': 15, '20keV':20, '25keV':25,
+    '1.8keV': 1.9, '1.9keV': 1.9, 
 }
 for key in energyDict:
     energyDict[key] *= 1000 ### eV
@@ -21,7 +22,8 @@ attenuationLengthDict = { ### https://henke.lbl.gov/optical_constants/atten2.htm
     'Mo':696.533, 'Mo_alpha2':684.201, 'Mo_beta':978.831,
     'Ag':1404.03, 'Ag_alpha2':1372.19, 'Ag_beta':1978.21, 
     'Sn':2054.03, 'Sn_alpha2':2001.54, 'Sn_beta':2881.53,
-    '10keV':133.706, '15keV':442.607, '20keV':1037.80, '25keV':1991.45
+    '5keV': 18.0101, '10keV':133.706, '15keV':442.607, '20keV':1037.80, '25keV':1991.45,
+    '1.8keV': 13.4951, '1.9keV': 1.36995,
 }
 kb1ka1RatioDict = {'Fe':0.1209, 'Cu':0.1216, 'Zr':0.1536, 'Mo':0.1586, 'Ag':0.2502, 'Sn':0.1751} ###  https://www.sciencedirect.com/science/article/pii/S0092640X74800197?via%3Dihub
 ka2ka1RatioDict = {'Fe':0.511,  'Cu':0.513,  'Zr':0.523, 'Mo':0.525, 'Ag':0.531,  'Sn':0.535}  ###  https://www.sciencedirect.com/science/article/pii/S0092640X74800197?via%3Dihub

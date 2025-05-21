@@ -103,20 +103,19 @@ class McSimulator:
 
             totalTime = 0
             while _z0 < self.sensorThickness:
-                rs = np.sqrt(xs**2 + ys**2 + zs**2)
-                arrlinds = np.argsort(rs)
-                xs = xs[arrlinds]
-                ys = ys[arrlinds]
-                zs = zs[arrlinds]
-                rs = rs[arrlinds]
-                ### the CDF of the charge distribution
-                cdf_rs = np.array(range(self.n)) / float(self.n)
-
                 Ez = self.getEz(_z0)
                 u = self.get_u_hole(Ez) ### without repulsion the mobility is the same for all carriers
 
                 ### repulsion
                 if self.repulsionInvolved:
+                    rs = np.sqrt(xs**2 + ys**2 + zs**2)
+                    arrlinds = np.argsort(rs)
+                    xs = xs[arrlinds]
+                    ys = ys[arrlinds]
+                    zs = zs[arrlinds]
+                    rs = rs[arrlinds]
+                    ### the CDF of the charge distribution
+                    cdf_rs = np.array(range(self.n)) / float(self.n)
                     Qr = cdf_rs * self.eIncident / energyPerPair
                     E_rep = Qr * e / (4*np.pi*epsilon*rs*rs) * 1e6 ### V/um
                     E_rep_x = E_rep * xs / rs
@@ -361,6 +360,10 @@ class McSimulator:
             f1.SetParLimits(0, 2, 5)
             f1.SetParLimits(1, .5, 30)
             f1.SetParameters(2., _rms*1.5)
+            if not self.repulsionInvolved:
+                ### no repulsion, fix beta = 2 to Gaussian
+                f1.SetParameter(0, 2)
+                f1.FixParameter(0, 2)
 
             h1.Scale(h1.GetNbinsX()/(10*_rms) /h1.Integral())
             h1.Fit(f1, 'Q')
@@ -382,6 +385,17 @@ class McSimulator:
         # print(f'weighted RMS = {np.sqrt(np.sum(np.array(rmsList)**2*self.pdfList))}')
         return rmsList, self.pdfList, ggdParList
 
+    def getDriftTime_allpix2_8p23(self, z0):
+        ### unit: V, cm, ns, K
+        T = self.T
+        v_m = 1.62e8 * T**(-0.52) # cm/s
+        E_c = 1.24 * T**1.68 # V/cm
+        u0 = v_m / E_c # cm^2/V/s
+        k = 21.6 * 2 / (320 * 1e-4)**2 ### um to cm
+        t = 1 / u0 * ((self.sensorThickness - z0)*1e-4/E_c + log(self.getEz(self.sensorThickness)/self.getEz(z0)) /k)
+        t *= 1e9 # convert to ns
+        return t
+
     def simulate2_fromParameters(self, pars_alpha, pars_beta):
         self.zBinning = 1024
         print(f'Overwrite zBinning = {self.zBinning}')
@@ -396,17 +410,6 @@ class McSimulator:
         func_alphaT = TF1('func_alpha', '[0] + [1] * sqrt((x)) + [2] * x + [3] * x^2')
         func_alphaT.SetParameters(pars_alpha[0], pars_alpha[1], pars_alpha[2], pars_alpha[3])
         
-        def getDriftTime_allpix2_8p23(z0):
-            ### unit: V, cm, ns, K
-            T = self.T
-            v_m = 1.62e8 * T**(-0.52) # cm/s
-            E_c = 1.24 * T**1.68 # V/cm
-            u0 = v_m / E_c # cm^2/V/s
-            k = 21.6 * 2 / (320 * 1e-4)**2 ### um to cm
-            t = 1 / u0 * ((self.sensorThickness - z0)*1e-4/E_c + log(self.getEz(self.sensorThickness)/self.getEz(z0)) /k)
-            t *= 1e9 # convert to ns
-            return t
-
         for z0 in self.z0List:
             t = getDriftTime_allpix2_8p23(z0)
             beta = func_betaT.Eval(t)
@@ -492,6 +495,10 @@ class McSimulator:
             f1.SetParLimits(0, 2, 5)
             f1.SetParLimits(1, .5, 30)
             f1.SetParameters(2., _rms*1.5)
+            if not self.repulsionInvolved:
+                ### no repulsion, fix beta = 2 to Gaussian
+                f1.SetParameter(0, 2)
+                f1.FixParameter(0, 2)
 
             h1.Scale(h1.GetNbinsX()/(10*_rms) /h1.Integral())
             h1.Fit(f1, 'Q')
