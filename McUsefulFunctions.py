@@ -90,8 +90,8 @@ def parameterization():
 
     c.cd(2)
     gr_BetaT = TGraphErrors(len(arr_z0), arr_t, arr_beta, array('d', np.zeros(len(arr_z0))), arr_betaUncert)
-    func_betaT = TF1('func_betaT', '[0]*x^[1]+ [2]*exp([3]*x) + 2')
-    func_betaT.SetParameters(3.5, -.5, 5, -5)
+    func_betaT = TF1('func_betaT', '[0]*(x-[1])^[2]+ [3]*exp([4]*x) + 2')
+    func_betaT.SetParameters(0.8, -0.2, -7. -1.2, -0.4)
     func_betaT.SetLineColor(kRed+1)
     gr_BetaT.Fit(func_betaT, '')
     gr_BetaT.SetTitle(';Approximated Drift Time [ns];#beta')
@@ -102,7 +102,7 @@ def parameterization():
     global pars_alpha, pars_beta
     pars_alpha = [func_alpha.GetParameter(i) for i in range(func_alpha.GetNpar())]
     pars_beta = [func_betaT.GetParameter(i) for i in range(func_betaT.GetNpar())]
-    np.save(f'ggdPar_{sensorCode}_{biasVoltage}V_{element}.npy', (pars_alpha, pars_beta))
+    np.save(f'ggdPar_{sensorCode}_{biasVoltage}V_{element}.npy', pars_alpha + pars_beta)
 
     return c.Clone()
 
@@ -130,8 +130,8 @@ def singleProcess(thredIdx):
     clusterWidth = _cfg['clusterWidth'] ### um
     attenuationLength = _cfg['attenuationLength'] # cm
     global pars_alpha, pars_beta
-    func_betaT = TF1('func_betaT', '[0]*x^[1]+ [2]*exp([3]*x) + 2')
-    func_betaT.SetParameters(pars_beta[0], pars_beta[1], pars_beta[2], pars_beta[3])
+    func_betaT = TF1('func_betaT', '[0]*(x-[1])^[2]+ [3]*exp([4]*x) + 2')
+    func_betaT.SetParameters(pars_beta[0], pars_beta[1], pars_beta[2], pars_beta[3], pars_beta[4])
     func_alphaT = TF1('func_alpha', '[0] + [1] * sqrt((x)) + [2] * x + [3] * x^2')
     func_alphaT.SetParameters(pars_alpha[0], pars_alpha[1], pars_alpha[2], pars_alpha[3])
 
@@ -157,8 +157,12 @@ def singleProcess(thredIdx):
         x_center = np.random.uniform(pixelSize*_frameWidth//2, pixelSize*_frameWidth//2 + pixelSize)
         y_center = np.random.uniform(pixelSize*_frameWidth//2, pixelSize*_frameWidth//2 + pixelSize)
         ### sample pair positions
-        x_pairs = gennorm.rvs(beta = beta, loc = x_center, scale = alpha, size = nPair)
-        y_pairs = gennorm.rvs(beta = beta, loc = y_center, scale = alpha, size = nPair)
+        try:
+            x_pairs = gennorm.rvs(beta = beta, loc = x_center, scale = alpha, size = nPair)
+            y_pairs = gennorm.rvs(beta = beta, loc = y_center, scale = alpha, size = nPair)
+        except Exception as e:
+            print(f't = {t:.3f} beta = {beta:.3f}, alpha = {alpha:.3f}')
+            continue
         x_pairs = x_pairs//pixelSize
         y_pairs = y_pairs//pixelSize
         ### put the pairs into the frame
@@ -203,7 +207,7 @@ def singleProcess(thredIdx):
                 y_energyCenter = (np.average(np.arange(clusterWidth), weights = pixelArray.sum(axis=1)) + 0.5)%1
                 h2_Qc.Fill(x_energyCenter, y_energyCenter)
             except:
-                print('Error in filling h2_Qc')
+                print(f'Error in filling h2_Qc: sum(pixelArray) = {np.sum(pixelArray)}')
                 pass
             h1_ChargeCollectionEfficiency.Fill(np.sum(carrierArray) / nPair)
             h1_CenterPixelEnergy.Fill(_energyArray[highestPixel[0], highestPixel[1]]/1000)
