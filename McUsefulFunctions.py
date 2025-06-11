@@ -91,7 +91,7 @@ def parameterization():
     c.cd(2)
     gr_BetaT = TGraphErrors(len(arr_z0), arr_t, arr_beta, array('d', np.zeros(len(arr_z0))), arr_betaUncert)
     func_betaT = TF1('func_betaT', '[0]*(x-[1])^[2]+ [3]*exp([4]*x) + 2')
-    func_betaT.SetParameters(0.8, -0.2, -7. -1.2, -0.4)
+    func_betaT.SetParameters(1.3, -4, -0.4, -0.6, -4.)
     func_betaT.SetLineColor(kRed+1)
     gr_BetaT.Fit(func_betaT, '')
     gr_BetaT.SetTitle(';Approximated Drift Time [ns];#beta')
